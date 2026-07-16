@@ -103,14 +103,7 @@ import React, { useState, useEffect, useCallback } from "react";
     return str !== "" && str !== "—";
   };
 
-  // ── Balance-based line item helpers ─────────────────────────────────────
-  // A line item can be decided across MULTIPLE approve/reject rounds.
-  // `quantity` is the fixed ordered ceiling; `approvedQty` and `rejectedQty`
-  // are cumulative totals built up round by round. Whatever's left
-  // (`balance`) stays open/actionable until it is explicitly approved or
-  // explicitly rejected — a round that doesn't touch a line never implicitly
-  // rejects it, and a partial approval leaves the remainder open for a
-  // later round instead of closing the line out.
+
   const getLineBalance = (item) => {
     const qty = Number(item?.quantity) || 0;
     const approved = Number(item?.approvedQty) || 0;
@@ -240,14 +233,7 @@ import React, { useState, useEffect, useCallback } from "react";
     );
   }
 
-  // ── POApprovalModal ────────────────────────────────────────────────────────
-  // Reworked to act on each line's remaining BALANCE only (quantity minus
-  // whatever's already been approved/rejected in prior rounds), and to be a
-  // single-purpose Approve-mode or Reject-mode modal — mirroring the
-  // Indent page's ItemApprovalModal — instead of one merged modal where an
-  // unchecked row silently meant "reject". Lines that have no balance left
-  // (fully approved or fully rejected already) are excluded entirely so they
-  // can never be re-touched by accident.
+ 
 
   function POApprovalModal({ open, onClose, po, onConfirm, mode = "approve" }) {
     const allItems = po?.lineItems || [];
@@ -413,22 +399,7 @@ import React, { useState, useEffect, useCallback } from "react";
             scrollbarColor: "#d1d5db transparent",
           }}
         >
-          {resolvedCount > 0 && (
-            <Box
-              sx={{
-                mb: "8px",
-                px: "10px",
-                py: "6px",
-                borderRadius: "6px",
-                bgcolor: "#f9fafb",
-                border: "1px solid #e5e7eb",
-              }}
-            >
-              <Typography sx={{ fontSize: 11, color: "#6b7280" }}>
-                {resolvedCount} item{resolvedCount !== 1 ? "s" : ""} already fully decided and not shown here.
-              </Typography>
-            </Box>
-          )}
+      
 
           {actionableIndices.length === 0 ? (
             <Box sx={{ py: 3, textAlign: "center" }}>
@@ -478,7 +449,7 @@ import React, { useState, useEffect, useCallback } from "react";
               >
                 <Box />
                 <Box />
-                {["Description", "Ordered / Balance", isApprove ? "Approve" : "Reject", "Reason"].map(
+                {["Description", "Indent Approved", isApprove ? "Approve" : "Reject", "Reason"].map(
                   (h, i) => (
                     <Typography
                       key={h}
@@ -661,29 +632,7 @@ import React, { useState, useEffect, useCallback } from "react";
                           )}
                         </Box>
                       </Box>
-                      {isPartial && (
-                        <Box
-                          sx={{
-                            ml: "40px",
-                            mt: "4px",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            px: "9px",
-                            py: "3px",
-                            borderRadius: "6px",
-                            bgcolor: "#fffbeb",
-                            border: "1px solid #fde68a",
-                          }}
-                        >
-                          <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#f59e0b" }} />
-                          <Typography sx={{ fontSize: 11, color: "#92400e", fontWeight: 600 }}>
-                            {isApprove
-                              ? `Partial: approving ${amt} of ${balance} remaining — ${balance - amt} stays open for later`
-                              : `Partial: rejecting ${amt} of ${balance} remaining — ${balance - amt} stays open for later`}
-                          </Typography>
-                        </Box>
-                      )}
+                      
                     </Box>
                   );
                 })}

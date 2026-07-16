@@ -674,10 +674,14 @@ export default function NewGRNDialog({
     tsConfirmed: false,
   });
 
+  // Only items with an actual approved quantity (approvedQty > 0) are
+  // eligible to be received against — an item that's still fully Pending
+  // (never approved/rejected) has nothing cleared for receipt yet, even
+  // though its overall balance is still "open" from an approval standpoint.
   const freshLines = () => {
     if (po?.lineItems?.length) {
       const eligibleItems = po.lineItems.filter(
-        (item) => item.approvalStatus !== "Rejected",
+        (item) => Number(item.approvedQty) > 0,
       );
 
       const lines = eligibleItems
@@ -686,10 +690,7 @@ export default function NewGRNDialog({
             (inv) => inv.name === item.description,
           );
           const orderedQty = parseFloat(item.quantity ?? item.qty ?? 0);
-          const effectiveQty =
-            item.approvedQty != null && item.approvedQty < orderedQty
-              ? parseFloat(item.approvedQty)
-              : orderedQty;
+          const effectiveQty = Number(item.approvedQty);
           const alreadyRcv =
             alreadyReceivedMap[(item.description || "").toLowerCase()] || 0;
           const openQty = Math.max(0, effectiveQty - alreadyRcv);
@@ -719,7 +720,7 @@ export default function NewGRNDialog({
             expiry: "",
             fromMaster: !!master,
             shortCloseReason: "",
-            wasPartial: item.approvalStatus === "Partial",
+            wasPartial: effectiveQty < orderedQty,
             _isShortCloseClosed: isShortCloseClosed,
           };
         })
@@ -895,18 +896,17 @@ export default function NewGRNDialog({
           });
         });
 
+      // Only items with an approved quantity (approvedQty > 0) are eligible
+      // — items still fully Pending have nothing cleared to receive yet.
       const newLines = selectedPO.lineItems
+        .filter((item) => Number(item.approvedQty) > 0)
         .map((item) => {
           const master = inventoryItems.find(
             (inv) =>
               inv.name?.toLowerCase().trim() ===
               (item.description || "").toLowerCase().trim(),
           );
-          const orderedQty = parseFloat(item.quantity ?? item.qty ?? 0);
-          const effectiveQty =
-            item.approvedQty != null && item.approvedQty < orderedQty
-              ? parseFloat(item.approvedQty)
-              : orderedQty;
+          const effectiveQty = Number(item.approvedQty);
           const alreadyReceivedQty = alreadyRcvMap[(item.description || "").toLowerCase()] || 0;
           const remainingQty = Math.max(0, effectiveQty - alreadyReceivedQty);
 
