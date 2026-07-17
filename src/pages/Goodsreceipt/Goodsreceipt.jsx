@@ -18,11 +18,11 @@ import {
   Divider,
   Tooltip,
   TextField,
-  Checkbox,
   InputAdornment,
   Pagination,
   Select,
   MenuItem,
+  Checkbox,
 } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -62,11 +62,13 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
   const getPriorApproved = (item) => item.itemApprovedQty || 0;
   const getRemaining = (item) => Math.max(0, (item.rcvQty ?? 0) - getPriorApproved(item));
   const isFullyApproved = (item) => item.itemApprovalStatus === "Approved" && getRemaining(item) <= 0;
-  const isActionable = (item) => !isItemExpired(item.expiry) && !isFullyApproved(item);
+  const isActionable = (item) => !isFullyApproved(item);
 
-  const [selected, setSelected] = useState(() =>
-    items.map((it, i) => ({ it, i })).filter(({ it }) => isActionable(it)).map(({ i }) => i),
-  );
+  // Purely quantity-driven — no separate approve/reject buttons. Each row's "Approve"
+  // field defaults to the full purchase/received quantity (or remaining balance, on a
+  // repeat round). Leave it as-is to approve in full, lower it for a partial approval
+  // (the leftover stays Pending for next time), or clear it to 0 to leave the whole
+  // item untouched/Pending this round. Expired items are auto-rejected — no action needed.
   const [approvedQty, setApprovedQty] = useState(() =>
     Object.fromEntries(items.map((it, i) => [i, getRemaining(it)])),
   );
@@ -74,12 +76,15 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
     Object.fromEntries(items.map((_, i) => [i, ""])),
   );
   const [submitted, setSubmitted] = useState(false);
+  const [selectedItems, setSelectedItems] = useState(() =>
+    Object.fromEntries(items.map((_, i) => [i, true])),
+  );
 
   useState(() => {
     if (open && receipt) {
-      setSelected(items.map((it, i) => ({ it, i })).filter(({ it }) => isActionable(it)).map(({ i }) => i));
       setApprovedQty(Object.fromEntries(items.map((it, i) => [i, getRemaining(it)])));
       setReason(Object.fromEntries(items.map((_, i) => [i, ""])));
+      setSelectedItems(Object.fromEntries(items.map((_, i) => [i, true])));
       setSubmitted(false);
     }
   });
@@ -87,21 +92,32 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
   if (!receipt) return null;
 
   const actionableIdxs = items.map((it, i) => ({ it, i })).filter(({ it }) => isActionable(it)).map(({ i }) => i);
+  const approveAll = () =>
+    setApprovedQty((prev) => {
+      const next = { ...prev };
+      actionableIdxs.forEach((idx) => { if (!isItemExpired(items[idx].expiry)) next[idx] = getRemaining(items[idx]); });
+      return next;
+    });
 
-  const toggle = (idx) =>
-    setSelected((prev) => prev.includes(idx) ? prev.filter((x) => x !== idx) : [...prev, idx]);
-  const toggleAll = () =>
-    setSelected(selected.length === actionableIdxs.length ? [] : actionableIdxs);
+  const approvingCount = actionableIdxs.filter((idx) => !isItemExpired(items[idx].expiry) && Number(approvedQty[idx] ?? 0) > 0).length;
+  const pendingCount = actionableIdxs.filter((idx) => !isItemExpired(items[idx].expiry) && Number(approvedQty[idx] ?? 0) === 0).length;
+  const expiredCount = actionableIdxs.filter((idx) => isItemExpired(items[idx].expiry)).length;
+  const hasAnyAction = approvingCount > 0 || expiredCount > 0;
 
   const handleConfirm = () => {
     setSubmitted(true);
-    const missingReason = selected.some((idx) => {
+    const missingReason = actionableIdxs.some((idx) => {
+      if (!selectedItems[idx]) return false; // Skip unselected items
+      if (isItemExpired(items[idx].expiry)) return false;
       const remaining = getRemaining(items[idx]);
       const appQty = Number(approvedQty[idx] ?? remaining);
-      return appQty < remaining && !reason[idx]?.trim();
+      return appQty > 0 && appQty < remaining && !reason[idx]?.trim();
     });
     if (missingReason) return;
     const updatedLines = items.map((item, idx) => {
+      // Skip items that are not selected
+      if (!selectedItems[idx]) return item;
+      
       // Already fully approved in an earlier round — leave untouched
       if (isFullyApproved(item)) return item;
 
@@ -109,21 +125,21 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
       const rcvQty = item.rcvQty ?? 0;
       const remaining = getRemaining(item);
 
-      if (!selected.includes(idx)) {
-        // Reject only the remaining balance; keep whatever was already approved earlier
-        return { ...item, itemApprovalStatus: "Rejected", itemApprovedQty: priorApproved, itemApprovalReason: reason[idx] || item.itemApprovalReason || "" };
+      if (isItemExpired(item.expiry)) {
+        return { ...item, itemApprovalStatus: "Rejected", itemApprovedQty: priorApproved, itemApprovalReason: item.itemApprovalReason || "Expired on receipt" };
       }
 
       const appQtyThisRound = Math.max(0, Math.min(Number(approvedQty[idx] ?? remaining), remaining));
+      if (appQtyThisRound <= 0) return item; // left untouched this round, still Pending
+
       const newApprovedQty = priorApproved + appQtyThisRound;
       const isPartial = newApprovedQty < rcvQty;
       return { ...item, itemApprovalStatus: isPartial ? "Partial" : "Approved", itemApprovedQty: newApprovedQty, itemApprovalReason: reason[idx] || item.itemApprovalReason || "" };
     });
     const allApproved = updatedLines.every((l) => l.itemApprovalStatus === "Approved");
     const allRejected = updatedLines.every((l) => l.itemApprovalStatus === "Rejected");
-    const hasPartial = updatedLines.some((l) => l.itemApprovalStatus === "Partial");
-    const hasRejected = updatedLines.some((l) => l.itemApprovalStatus === "Rejected");
-    const newGRNStatus = allRejected ? "Rejected" : allApproved ? "Completed" : hasPartial || hasRejected ? "Partial" : "Completed";
+    // Anything not fully Approved/Rejected (Partial, or still untouched/Pending) keeps the GRN in "Partial" (needs further action)
+    const newGRNStatus = allRejected ? "Rejected" : allApproved ? "Completed" : "Partial";
     const newTotal = updatedLines.filter((l) => l.itemApprovalStatus !== "Rejected").reduce((s, l) => s + (l.itemApprovedQty || 0) * (l.unitCost || 0), 0);
     onConfirm({
       lineItems: updatedLines,
@@ -135,8 +151,8 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth disableRestoreFocus disableScrollLock
-      PaperProps={{ sx: { borderRadius: "14px", boxShadow: "0 20px 60px rgba(0,0,0,0.15)", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" } }}>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth disableRestoreFocus disableScrollLock
+      PaperProps={{ sx: { borderRadius: "14px", boxShadow: "0 20px 60px rgba(0,0,0,0.15)", maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden", m: "auto" } }}>
       <Box sx={{ px: { xs: 1.5, sm: 2, md: 2.5 }, pt: { xs: 1.25, sm: 1.5, md: 1.75 }, pb: { xs: 1, sm: 1.25, md: 1.5 }, display: "flex", alignItems: "flex-start", justifyContent: "space-between", borderBottom: "1px solid #f3f4f6", bgcolor: "#fff" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 0.75, sm: 1, md: 1.5 } }}>
           <Box sx={{ width: { xs: 36, sm: 38, md: 38 }, height: { xs: 36, sm: 38, md: 38 }, borderRadius: "10px", bgcolor: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -144,7 +160,6 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
           </Box>
           <Box>
             <Typography sx={{ fontSize: { xs: 14, sm: 15, md: 16 }, fontWeight: 700, color: "#111827" }}>Approve Items — {receipt?.id}</Typography>
-            <Typography sx={{ fontSize: { xs: 11, sm: 12, md: 12 }, color: "#9ca3af", mt: { xs: 0.25, sm: 0.5, md: 0.5 } }}>Select items to approve · set approved qty · provide reason for partial approvals</Typography>
           </Box>
         </Box>
         <IconButton size="small" onClick={onClose} disableRipple sx={{ color: "#9ca3af", border: "1px solid #e5e7eb", borderRadius: "8px", width: { xs: 28, sm: 30, md: 30 }, height: { xs: 28, sm: 30, md: 30 }, "&:hover": { bgcolor: "#f3f4f6" }, "&:focus": { outline: "none" } }}>
@@ -152,14 +167,10 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
         </IconButton>
       </Box>
       <DialogContent sx={{ px: { xs: 1.5, sm: 2, md: 2.5 }, py: { xs: 1.25, sm: 1.5, md: 1.75 }, overflowY: "auto", flex: 1, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { background: "#d1d5db", borderRadius: 4 }, scrollbarWidth: "thin", scrollbarColor: "#d1d5db transparent" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 0.5, sm: 0.75, md: 1 }, mb: { xs: 0.75, sm: 1, md: 1.5 }, pb: { xs: 0.75, sm: 1, md: 1.5 }, borderBottom: "1px solid #f3f4f6" }}>
-          <Checkbox size="small" checked={selected.length === items.length && items.length > 0} indeterminate={selected.length > 0 && selected.length < items.length} onChange={toggleAll} sx={{ p: 0, color: "#16a34a", "&.Mui-checked": { color: "#16a34a" }, "&.MuiCheckbox-indeterminate": { color: "#16a34a" } }} />
-          <Typography sx={{ fontSize: { xs: 11, sm: 12, md: 13 }, fontWeight: 600, color: "#374151" }}>Select All ({actionableIdxs.length} of {items.length} items{actionableIdxs.length < items.length ? " — rest already fully approved" : ""})</Typography>
-        </Box>
-        <Box sx={{ display: "grid", gridTemplateColumns: "32px 24px minmax(0,3fr) 80px 80px 1fr", gap: { xs: 0.5, sm: 0.75, md: 1 }, px: { xs: 1, sm: 1.5, md: 1.75 }, mb: { xs: 0.5, sm: 0.75, md: 1 }, alignItems: "center" }}>
-          <Box /><Box />
-          {["Item", "Remaining", "Approve", "Reason (partial only)"].map((h, i) => (
-            <Typography key={h} sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, color: i === 1 ? "#0284c7" : "#9ca3af", letterSpacing: "0.06em", textTransform: "uppercase", textAlign: i === 1 || i === 2 ? "center" : "left" }}>{h}</Typography>
+       
+        <Box sx={{ display: "grid", gridTemplateColumns: "24px minmax(0,3fr) 80px 90px 1fr", gap: { xs: 0.5, sm: 0.75, md: 1 }, px: { xs: 1, sm: 1.5, md: 1.75 }, mb: { xs: 0.5, sm: 0.75, md: 1 }, alignItems: "center" }}>
+          {["", "Item", "Purchase Qty", "Approve", "Reason (partial only)"].map((h, i) => (
+            <Typography key={h} sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, color: i === 2 ? "#0284c7" : "#9ca3af", letterSpacing: "0.06em", textTransform: "uppercase", textAlign: i === 2 || i === 3 ? "center" : "left" }}>{h}</Typography>
           ))}
         </Box>
         <Box sx={{ display: "flex", flexDirection: "column", gap: { xs: 0.5, sm: 0.75, md: 1 } }}>
@@ -173,22 +184,17 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
             // ── Locked row: item already fully approved in a prior round ──
             if (locked) {
               return (
-                <Box key={idx} sx={{ display: "grid", gridTemplateColumns: "32px 24px minmax(0,3fr) 80px 80px 1fr", gap: { xs: 0.5, sm: 0.75, md: 1 }, alignItems: "center", p: { xs: 0.75, sm: 1, md: 1.25 }, borderRadius: "8px", border: "1px solid #bbf7d0", bgcolor: "#f0fdf4", opacity: 0.85 }}>
-                  <Box />
-                  <Box sx={{ width: { xs: 20, md: 22 }, height: { xs: 20, md: 22 }, borderRadius: "50%", bgcolor: "#dcfce7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Typography sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, color: "#16a34a" }}>✓</Typography>
+                <Box key={idx} sx={{ display: "grid", gridTemplateColumns: "24px minmax(0,3fr) 80px 90px 1fr", gap: { xs: 0.5, sm: 0.75, md: 1 }, alignItems: "center", p: { xs: 0.75, sm: 1, md: 1.25 }, borderRadius: "8px", border: "1px solid #bbf7d0", bgcolor: "#f0fdf4", opacity: 0.85 }}>
+                  <Box sx={{ display: "flex", justifyContent: "center" }}>
+                    <Checkbox checked={selectedItems[idx] || false} disabled size="small" sx={{ p: 0 }} />
                   </Box>
                   <Box sx={{ minWidth: 0 }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 0.5, sm: 0.75, md: 1 }, overflow: "hidden" }}>
                       <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item}</Typography>
                       <Chip label="Fully Approved" size="small" sx={{ height: { xs: 16, md: 18 }, fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, bgcolor: "#dcfce7", color: "#16a34a", flexShrink: 0, "& .MuiChip-label": { px: { xs: 0.5, sm: 0.75, md: 1 } } }} />
                     </Box>
-                    {(item.itemCode || item.category) && <Typography sx={{ fontSize: { xs: 10, sm: 11, md: 11 }, color: "#9ca3af" }}>{item.itemCode}{item.category ? ` · ${item.category}` : ""}</Typography>}
                   </Box>
-                  <Box sx={{ textAlign: "center" }}>
-                    <Typography sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, color: "#0284c7", mb: { xs: 0.25, sm: 0.5, md: 0.5 }, fontWeight: 600 }}>Received</Typography>
-                    <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 14 }, fontWeight: 700, color: "#0284c7" }}>{rcvQty}</Typography>
-                  </Box>
+                  
                   <Box sx={{ textAlign: "center" }}>
                     <Typography sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, color: "#9ca3af", mb: { xs: 0.25, sm: 0.5, md: 0.5 } }}>Approved</Typography>
                     <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 14 }, fontWeight: 700, color: "#16a34a" }}>{priorApproved}</Typography>
@@ -198,50 +204,51 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
               );
             }
 
-            const isChecked = selected.includes(idx);
             const appQty = approvedQty[idx] ?? remaining;
-            const isPartial = isChecked && Number(appQty) < remaining;
-            const missingReason = submitted && isChecked && isPartial && !reason[idx]?.trim();
+            const isPending = !itemExpired && Number(appQty) === 0;
+            const isPartial = !itemExpired && Number(appQty) > 0 && Number(appQty) < remaining;
+            const missingReason = submitted && isPartial && !reason[idx]?.trim();
             return (
               <Box key={idx}>
-                <Box onClick={() => !itemExpired && toggle(idx)} sx={{ display: "grid", gridTemplateColumns: "32px 24px minmax(0,3fr) 80px 80px 1fr", gap: { xs: 0.5, sm: 0.75, md: 1 }, alignItems: "center", p: { xs: 0.75, sm: 1, md: 1.25 }, borderRadius: "8px", border: `1px solid ${itemExpired ? "#fecaca" : isChecked ? "#bbf7d0" : "#e5e7eb"}`, bgcolor: itemExpired ? "#fef2f2" : isChecked ? "#f0fdf4" : "#f9fafb", cursor: itemExpired ? "not-allowed" : "pointer", transition: "all 0.12s", "&:hover": itemExpired ? {} : { borderColor: "#bbf7d0", bgcolor: "#f0fdf4" } }}>
-                  <Checkbox size="small" checked={isChecked} disabled={itemExpired} onChange={() => !itemExpired && toggle(idx)} onClick={(e) => e.stopPropagation()} sx={{ p: 0, color: "#16a34a", "&.Mui-checked": { color: "#16a34a" } }} />
-                  <Box sx={{ width: { xs: 20, md: 22 }, height: { xs: 20, md: 22 }, borderRadius: "50%", bgcolor: itemExpired ? "#fecaca" : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Typography sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, color: itemExpired ? "#dc2626" : "#6b7280" }}>{idx + 1}</Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: "24px minmax(0,3fr) 80px 90px 1fr", gap: { xs: 0.5, sm: 0.75, md: 1 }, alignItems: "center", p: { xs: 0.75, sm: 1, md: 1.25 }, borderRadius: "8px", border: `1px solid ${itemExpired ? "#fecaca" : isPending ? "#e5e7eb" : "#bbf7d0"}`, bgcolor: itemExpired ? "#fef2f2" : isPending ? "#f9fafb" : "#f0fdf4", transition: "all 0.12s" }}>
+                  <Box sx={{ display: "flex", justifyContent: "center" }}>
+                    <Checkbox checked={selectedItems[idx] || false} disabled={itemExpired} onChange={(e) => setSelectedItems((prev) => ({ ...prev, [idx]: e.target.checked }))} size="small" sx={{ p: 0 }} />
                   </Box>
                   <Box sx={{ minWidth: 0 }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 0.5, sm: 0.75, md: 1 }, overflow: "hidden" }}>
                       <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, fontWeight: 600, color: itemExpired ? "#dc2626" : "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item}</Typography>
-                      {itemExpired && <Chip label="Expired" size="small" sx={{ height: { xs: 16, md: 18 }, fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, bgcolor: "#fecaca", color: "#dc2626", flexShrink: 0, "& .MuiChip-label": { px: { xs: 0.5, sm: 0.75, md: 1 } } }} />}
+                      {itemExpired && <Chip label="Expired — will be rejected" size="small" sx={{ height: { xs: 16, md: 18 }, fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, bgcolor: "#fecaca", color: "#dc2626", flexShrink: 0, "& .MuiChip-label": { px: { xs: 0.5, sm: 0.75, md: 1 } } }} />}
+                      {isPending && <Chip label="Pending" size="small" sx={{ height: { xs: 16, md: 18 }, fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, bgcolor: "#f3f4f6", color: "#6b7280", flexShrink: 0, "& .MuiChip-label": { px: { xs: 0.5, sm: 0.75, md: 1 } } }} />}
                       {priorApproved > 0 && <Chip label={`${priorApproved} already approved`} size="small" sx={{ height: { xs: 16, md: 18 }, fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, bgcolor: "#dcfce7", color: "#16a34a", flexShrink: 0, "& .MuiChip-label": { px: { xs: 0.5, sm: 0.75, md: 1 } } }} />}
                     </Box>
                     {(item.itemCode || item.category) && <Typography sx={{ fontSize: { xs: 10, sm: 11, md: 11 }, color: "#9ca3af" }}>{item.itemCode}{item.category ? ` · ${item.category}` : ""}{item.unitCost ? ` · $${item.unitCost.toFixed(2)}/unit` : ""}</Typography>}
                     {itemExpired && item.expiry && <Typography sx={{ fontSize: { xs: 10, sm: 11, md: 11 }, color: "#dc2626", fontWeight: 500 }}>Expired: {item.expiry}</Typography>}
                   </Box>
                   <Box sx={{ textAlign: "center" }}>
-                    <Typography sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, color: "#0284c7", mb: { xs: 0.25, sm: 0.5, md: 0.5 }, fontWeight: 600 }}>Remaining</Typography>
-                    <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 14 }, fontWeight: 700, color: "#0284c7" }}>{remaining}</Typography>
+                    <Typography sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, color: "#9ca3af", mb: { xs: 0.25, sm: 0.5, md: 0.5 }, fontWeight: 600 }}>
+                      {priorApproved > 0 ? "Remaining" : "Purchase Qty"}
+                    </Typography>
+                    {remaining > 0 ? (
+                      <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 14 }, fontWeight: 700, color: "#0284c7" }}>{priorApproved > 0 ? remaining : rcvQty}</Typography>
+                    ) : (
+                      <Chip label="Nothing left" size="small" sx={{ height: { xs: 16, md: 18 }, fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, bgcolor: "#f3f4f6", color: "#6b7280", "& .MuiChip-label": { px: { xs: 0.5, sm: 0.75, md: 1 } } }} />
+                    )}
                   </Box>
-                  <Box sx={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                  <Box sx={{ textAlign: "center" }}>
                     <Typography sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, color: "#9ca3af", mb: { xs: 0.25, sm: 0.5, md: 0.5 } }}>Approve</Typography>
-                    <TextField size="small" type="number" value={appQty} disabled={!isChecked}
+                    <TextField size="small" type="number" value={appQty} disabled={itemExpired}
                       onChange={(e) => { const val = Math.max(0, Math.min(Number(e.target.value) || 0, remaining)); setApprovedQty((prev) => ({ ...prev, [idx]: val })); }}
                       inputProps={{ min: 0, max: remaining, style: { textAlign: "center", padding: "4px 6px", fontSize: 13, fontWeight: 700 } }}
-                      sx={{ width: "68px", "& .MuiOutlinedInput-root": { borderRadius: "6px", bgcolor: isChecked ? "#fff" : "#f3f4f6", "& fieldset": { borderColor: isPartial ? "#f59e0b" : "#d1d5db" }, "&:hover fieldset": { borderColor: isPartial ? "#d97706" : "#9ca3af" }, "&.Mui-focused fieldset": { borderColor: "#16a34a", borderWidth: "1.5px" } }, "& input[type=number]": { MozAppearance: "textfield" }, "& input::-webkit-outer-spin-button": { WebkitAppearance: "none" }, "& input::-webkit-inner-spin-button": { WebkitAppearance: "none" } }} />
+                      sx={{ width: "68px", "& .MuiOutlinedInput-root": { borderRadius: "6px", bgcolor: itemExpired ? "#f3f4f6" : "#fff", "& fieldset": { borderColor: isPartial ? "#f59e0b" : "#d1d5db" }, "&:hover fieldset": { borderColor: isPartial ? "#d97706" : "#9ca3af" }, "&.Mui-focused fieldset": { borderColor: "#16a34a", borderWidth: "1.5px" } }, "& input[type=number]": { MozAppearance: "textfield" }, "& input::-webkit-outer-spin-button": { WebkitAppearance: "none" }, "& input::-webkit-inner-spin-button": { WebkitAppearance: "none" } }} />
                   </Box>
-                  <Box onClick={(e) => e.stopPropagation()}>
-                    <TextField size="small" fullWidth placeholder={isPartial ? "Reason required *" : "Reason (optional)"} value={reason[idx] || ""} disabled={!isChecked}
+                  <Box>
+                    <TextField size="small" fullWidth placeholder={isPartial ? "Reason required *" : "Reason (optional)"} value={reason[idx] || ""} disabled={itemExpired || isPending}
                       onChange={(e) => setReason((prev) => ({ ...prev, [idx]: e.target.value }))}
-                      sx={{ "& .MuiOutlinedInput-root": { fontSize: { xs: 11, sm: 12, md: 12 }, borderRadius: "6px", bgcolor: isChecked ? "#fff" : "#f3f4f6", "& fieldset": { borderColor: missingReason ? "#ef4444" : "#d1d5db" }, "&:hover fieldset": { borderColor: "#9ca3af" }, "&.Mui-focused fieldset": { borderColor: "#16a34a", borderWidth: "1.5px" } }, "& .MuiInputBase-input": { py: { xs: 0.5, sm: 0.75, md: 1 }, px: { xs: 0.75, sm: 1, md: 1.25 } } }} />
+                      sx={{ "& .MuiOutlinedInput-root": { fontSize: { xs: 11, sm: 12, md: 12 }, borderRadius: "6px", bgcolor: (itemExpired || isPending) ? "#f3f4f6" : "#fff", "& fieldset": { borderColor: missingReason ? "#ef4444" : "#d1d5db" }, "&:hover fieldset": { borderColor: "#9ca3af" }, "&.Mui-focused fieldset": { borderColor: "#16a34a", borderWidth: "1.5px" } }, "& .MuiInputBase-input": { py: { xs: 0.5, sm: 0.75, md: 1 }, px: { xs: 0.75, sm: 1, md: 1.25 } } }} />
                     {missingReason && <Typography sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, color: "#ef4444", mt: { xs: 0.25, sm: 0.5, md: 0.5 } }}>Required for partial approval</Typography>}
                   </Box>
                 </Box>
-                {isPartial && (
-                  <Box sx={{ ml: { xs: 4, sm: 4.5, md: 4.5 }, mt: { xs: 0.25, sm: 0.5, md: 0.75 }, display: "inline-flex", alignItems: "center", gap: { xs: 0.5, sm: 0.75, md: 1 }, px: { xs: 0.75, sm: 1, md: 1.25 }, py: { xs: 0.25, sm: 0.375, md: 0.5 }, borderRadius: "6px", bgcolor: "#fffbeb", border: "1px solid #fde68a" }}>
-                    <Box sx={{ width: { xs: 4, md: 6 }, height: { xs: 4, md: 6 }, borderRadius: "50%", bgcolor: "#f59e0b" }} />
-                    <Typography sx={{ fontSize: { xs: 10, sm: 11, md: 11 }, color: "#92400e", fontWeight: 600 }}>Partial: approving {appQty} of {remaining} remaining unit{remaining === 1 ? "" : "s"}{priorApproved > 0 ? ` (${priorApproved} already approved earlier)` : ""}</Typography>
-                  </Box>
-                )}
+               
               </Box>
             );
           })}
@@ -249,14 +256,14 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
       </DialogContent>
       <Box sx={{ px: { xs: 1.5, sm: 2, md: 2.5 }, py: { xs: 1, sm: 1.25, md: 1.5 }, borderTop: "1px solid #f3f4f6", display: "flex", alignItems: "center", justifyContent: "space-between", bgcolor: "#fff" }}>
         <Box>
-          <Typography sx={{ fontSize: { xs: 11, sm: 12, md: 12 }, color: "#9ca3af" }}>{selected.length} of {items.length} items selected</Typography>
-          {submitted && selected.some((idx) => { const rcvQty = items[idx].rcvQty ?? 0; return Number(approvedQty[idx] ?? rcvQty) < rcvQty && !reason[idx]?.trim(); }) && (
+         
+          {submitted && actionableIdxs.some((idx) => { if (isItemExpired(items[idx].expiry)) return false; const remaining = getRemaining(items[idx]); const appQty = Number(approvedQty[idx] ?? remaining); return appQty > 0 && appQty < remaining && !reason[idx]?.trim(); }) && (
             <Typography sx={{ fontSize: { xs: 10, sm: 11, md: 11 }, color: "#ef4444", mt: { xs: 0.25, sm: 0.5, md: 0.5 } }}>Reason is required for all partial approvals</Typography>
           )}
         </Box>
         <Box sx={{ display: "flex", gap: { xs: 0.75, sm: 1, md: 1.25 } }}>
           <Button onClick={onClose} disableRipple sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, fontWeight: 600, textTransform: "none", borderRadius: "8px", px: { xs: 1.25, sm: 1.5, md: 2.5 }, py: { xs: 0.5, sm: 0.75, md: 1 }, height: { xs: 44, sm: 40, md: 36 }, color: "#374151", border: "1px solid #e5e7eb", bgcolor: "#fff", "&:hover": { bgcolor: "#f9fafb" }, "&:focus": { outline: "none" } }}>Cancel</Button>
-          <Button onClick={handleConfirm} disabled={selected.length === 0} disableRipple sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, fontWeight: 700, textTransform: "none", borderRadius: "8px", px: { xs: 1.25, sm: 1.5, md: 2.5 }, py: { xs: 0.5, sm: 0.75, md: 1 }, height: { xs: 44, sm: 40, md: 36 }, color: "#fff", bgcolor: "#16a34a", boxShadow: "0 2px 8px rgba(22,163,74,0.3)", "&:hover": { bgcolor: "#15803d" }, "&.Mui-disabled": { opacity: 0.5, color: "#fff" }, "&:focus": { outline: "none" } }}>Confirm Approval ({selected.length})</Button>
+          <Button onClick={handleConfirm} disabled={!hasAnyAction} disableRipple sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, fontWeight: 700, textTransform: "none", borderRadius: "8px", px: { xs: 1.25, sm: 1.5, md: 2.5 }, py: { xs: 0.5, sm: 0.75, md: 1 }, height: { xs: 44, sm: 40, md: 36 }, color: "#fff", bgcolor: "#16a34a", boxShadow: "0 2px 8px rgba(22,163,74,0.3)", "&:hover": { bgcolor: "#15803d" }, "&.Mui-disabled": { opacity: 0.5, color: "#fff" }, "&:focus": { outline: "none" } }}>Confirm</Button>
         </Box>
       </Box>
     </Dialog>
@@ -375,7 +382,6 @@ function GRNViewModal({ receipt, onClose, onApprove, onRejectConfirm, onDiscrepa
           <Box sx={{ mb: "16px", p: "12px 16px", borderRadius: "10px", border: "1px solid #bbf7d0", bgcolor: "#f0fdf4", display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
             <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#15803d" }}>Item Approval Summary</Typography>
             {approvedCount > 0 && <Chip label={`✓ ${approvedCount} Approved`} size="small" sx={{ bgcolor: "#dcfce7", color: "#16a34a", fontWeight: 700, fontSize: 11, height: 22 }} />}
-            {partialCount > 0 && <Chip label={`~ ${partialCount} Partial`} size="small" sx={{ bgcolor: "#fef9c3", color: "#ca8a04", fontWeight: 700, fontSize: 11, height: 22 }} />}
             {rejectedCount > 0 && <Chip label={`✕ ${rejectedCount} Rejected`} size="small" sx={{ bgcolor: "#fef2f2", color: "#dc2626", fontWeight: 700, fontSize: 11, height: 22 }} />}
           </Box>
         )}
@@ -405,7 +411,7 @@ function GRNViewModal({ receipt, onClose, onApprove, onRejectConfirm, onDiscrepa
                     <Box sx={{ minWidth: 0 }}>
                       <Box sx={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: itemStatus === "Rejected" ? "line-through" : "none" }}>{line.item}</Typography>
-                        {itemStatus && <Chip label={itemStatus} size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700, flexShrink: 0, bgcolor: itemStatus === "Approved" ? "#dcfce7" : itemStatus === "Partial" ? "#fef9c3" : "#fef2f2", color: itemStatus === "Approved" ? "#16a34a" : itemStatus === "Partial" ? "#ca8a04" : "#dc2626" }} />}
+                        {itemStatus ? <Chip label={itemStatus} size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700, flexShrink: 0, bgcolor: itemStatus === "Approved" ? "#dcfce7" : itemStatus === "Partial" ? "#fef9c3" : "#fef2f2", color: itemStatus === "Approved" ? "#16a34a" : itemStatus === "Partial" ? "#ca8a04" : "#dc2626" }} /> : hasItemApprovals && <Chip label="Pending" size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700, flexShrink: 0, bgcolor: "#f3f4f6", color: "#6b7280" }} />}
                       </Box>
                       {line.itemCode && <Typography sx={{ fontSize: 10, color: "#9ca3af" }}>{line.itemCode}{line.category ? ` · ${line.category}` : ""}</Typography>}
                       {line.itemApprovalReason && <Typography sx={{ fontSize: 10, color: "#ca8a04", mt: "1px", fontStyle: "italic" }}>"{line.itemApprovalReason}"</Typography>}
@@ -419,7 +425,7 @@ function GRNViewModal({ receipt, onClose, onApprove, onRejectConfirm, onDiscrepa
                         {isShort && <Typography sx={{ fontSize: 9, color: "#ea580c" }}>{line.poQty - line.rcvQty} short</Typography>}
                       </Box>
                     )}
-                    {hasItemApprovals && <Box sx={{ textAlign: "center" }}><Typography sx={{ fontSize: 13, fontWeight: 700, color: itemStatus === "Approved" ? "#16a34a" : itemStatus === "Partial" ? "#ca8a04" : itemStatus === "Rejected" ? "#dc2626" : "#9ca3af" }}>{line.itemApprovedQty != null ? line.itemApprovedQty : "—"}</Typography></Box>}
+                    {hasItemApprovals && <Box sx={{ textAlign: "center" }}><Typography sx={{ fontSize: 13, fontWeight: 700, color: itemStatus === "Approved" ? "#16a34a" : itemStatus === "Partial" ? "#ca8a04" : itemStatus === "Rejected" ? "#dc2626" : "#9ca3af" }}>{line.itemApprovedQty != null ? line.itemApprovedQty : "Pending"}</Typography></Box>}
                     <Typography sx={{ fontSize: 12, color: "#6b7280", textAlign: "center" }}>{line.unitCost ? `${line.unitCost.toFixed(2)}` : "—"}</Typography>
                     <Typography sx={{ fontSize: 12, color: "#374151", textAlign: "center" }}>{line.lotNo || "—"}</Typography>
                     <Box sx={{ textAlign: "center" }}>
@@ -717,11 +723,20 @@ export default function GoodsReceipt() {
 
   const handleItemApprovalConfirm = (updates) => {
     const todayCheck = new Date(); todayCheck.setHours(0, 0, 0, 0);
+    const prevLines = viewReceipt.lineItems || [];
     const hasExpired = (updates.lineItems || []).some((l) => { if (l.itemApprovalStatus === "Rejected") return false; if (!l.expiry) return false; const d = new Date(l.expiry); d.setHours(0, 0, 0, 0); return d <= todayCheck; });
     const finalUpdates = hasExpired ? { ...updates, status: "Discrepancy", condition: "Expired Goods", discrepancyNote: `Expired item(s) received: ${(updates.lineItems || []).filter((l) => { if (l.itemApprovalStatus === "Rejected" || !l.expiry) return false; const d = new Date(l.expiry); d.setHours(0, 0, 0, 0); return d <= todayCheck; }).map((l) => `${l.item} (exp. ${l.expiry})`).join(", ")}` } : updates;
     updateGRN(viewReceipt.id, finalUpdates);
     setViewReceipt((prev) => (prev ? { ...prev, ...finalUpdates } : prev));
-    const approvedLines = (finalUpdates.lineItems || []).filter((l) => { if (l.itemApprovalStatus === "Rejected" || (l.itemApprovedQty || 0) <= 0) return false; if (l.expiry) { const d = new Date(l.expiry); d.setHours(0, 0, 0, 0); if (d <= todayCheck) return false; } return true; }).map((l) => ({ ...l, rcvQty: l.itemApprovedQty }));
+    // Only push the newly-approved increment to inventory this round — the cumulative
+    // itemApprovedQty may already include stock posted in an earlier approval round.
+    const approvedLines = (finalUpdates.lineItems || [])
+      .map((l, i) => {
+        const priorApprovedQty = prevLines[i]?.itemApprovedQty || 0;
+        const incrementQty = Math.max(0, (l.itemApprovedQty || 0) - priorApprovedQty);
+        return { ...l, rcvQty: incrementQty };
+      })
+      .filter((l) => { if (l.itemApprovalStatus === "Rejected" || l.rcvQty <= 0) return false; if (l.expiry) { const d = new Date(l.expiry); d.setHours(0, 0, 0, 0); if (d <= todayCheck) return false; } return true; });
     if (approvedLines.length > 0) {
       try {
         const pos = JSON.parse(localStorage.getItem("purchase_orders_data") || "[]");

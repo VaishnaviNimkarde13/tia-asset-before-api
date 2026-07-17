@@ -253,9 +253,8 @@ export default function ItemApprovalModal({ open, onClose, indent, mode, onConfi
                         size="small"
                         checked={isChecked && actionable}
                         disabled={!actionable}
-                        onChange={() => toggle(itemId)}
-                        onClick={(e) => e.stopPropagation()}
-                        sx={{ p: 0, color: actionColor, "&.Mui-checked": { color: actionColor } }}
+                        onChange={() => actionable && toggle(itemId)}
+                        sx={{ p: 0, color: actionColor, "&.Mui-checked": { color: actionColor }, cursor: actionable ? "pointer" : "default" }}
                       />
 
                       {/* Row number */}
