@@ -242,6 +242,16 @@ import React, { useState, useEffect, useCallback } from "react";
       .filter((i) => getLineBalance(allItems[i]) > 0);
     const resolvedCount = allItems.length - actionableIndices.length;
     const isApprove = mode === "approve";
+    // First approval/rejection round on this PO — nothing has been
+    // approved or rejected on any line yet. In this state we show the
+    // Indent Approved quantity (what the indent stage cleared) rather than
+    // "Remaining Qty", since before any action the two are identical and
+    // "Indent Approved" is the more meaningful label. Once any line has
+    // been touched, later rounds switch to showing the true remaining
+    // (open) balance instead.
+    const isFirstRound = allItems.every(
+      (it) => !(Number(it.approvedQty) > 0) && !(Number(it.rejectedQty) > 0),
+    );
 
     const initialSelected = () => [...actionableIndices];
     const initialQty = () =>
@@ -449,7 +459,7 @@ import React, { useState, useEffect, useCallback } from "react";
               >
                 <Box />
                 <Box />
-                {["Description", "Indent Approved", isApprove ? "Approve" : "Reject", "Reason"].map(
+                {["Item", isFirstRound ? "Indent Approved" : "Remaining Qty", isApprove ? "Approve" : "Reject", "Reason"].map(
                   (h, i) => (
                     <Typography
                       key={h}
@@ -540,16 +550,12 @@ import React, { useState, useEffect, useCallback } from "react";
                         </Box>
                         <Box sx={{ textAlign: "center" }}>
                           <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed" }}>
-                            {item.quantity}
+                            {isFirstRound
+                              ? (item.indentApprovedQty != null ? item.indentApprovedQty : item.quantity)
+                              : balance}
                           </Typography>
-                          <Typography sx={{ fontSize: 9, color: "#9ca3af" }}>
-                            balance: {balance}
-                          </Typography>
-                          {Number(item.approvedQty) > 0 && (
-                            <Typography sx={{ fontSize: 9, color: "#16a34a" }}>
-                              appr: {item.approvedQty}
-                            </Typography>
-                          )}
+                       
+                         
                           {Number(item.rejectedQty) > 0 && (
                             <Typography sx={{ fontSize: 9, color: "#dc2626" }}>
                               rej: {item.rejectedQty}
@@ -1468,7 +1474,7 @@ import React, { useState, useEffect, useCallback } from "react";
                 display: "grid",
                 gridTemplateColumns: editMode
                   ? { xs: "minmax(0,3fr) 80px 72px 72px 36px", md: "minmax(0,3fr) 80px 72px 72px 36px" }
-                  : { xs: "minmax(0,3fr) 52px 72px 72px", md: "minmax(0,3fr) 52px 72px 72px" },
+                  : { xs: "minmax(0,2.4fr) 52px 60px 64px 64px 68px", md: "minmax(0,2.4fr) 52px 60px 64px 64px 68px" },
                 gap: { xs: 0.5, sm: 0.75, md: 1 },
                 mb: { xs: 0.5, sm: 0.75, md: 1 },
                 px: { xs: 0.75, sm: 1, md: 1.25 },
@@ -1476,7 +1482,7 @@ import React, { useState, useEffect, useCallback } from "react";
             >
               {(editMode
                 ? ["DESCRIPTION", "QTY", "UNIT COST", "TOTAL", ""]
-                : ["DESCRIPTION", "QTY", "UNIT COST", "TOTAL"]
+                : ["DESCRIPTION", "REQUIRED", "APPROVED", "REMAINING", "UNIT COST", "TOTAL"]
               ).map((h) => (
                 <Typography
                   key={h}
@@ -1505,7 +1511,7 @@ import React, { useState, useEffect, useCallback } from "react";
                       display: "grid",
                       gridTemplateColumns: editMode
                         ? { xs: "minmax(0,3fr) 80px 72px 72px 36px", md: "minmax(0,3fr) 80px 72px 72px 36px" }
-                        : { xs: "minmax(0,3fr) 52px 72px 72px", md: "minmax(0,3fr) 52px 72px 72px" },
+                        : { xs: "minmax(0,2.4fr) 52px 60px 64px 64px 68px", md: "minmax(0,2.4fr) 52px 60px 64px 64px 68px" },
                       gap: { xs: 0.5, sm: 0.75, md: 1 },
                       alignItems: "center",
                       p: { xs: 0.75, sm: 1, md: 1.25 },
@@ -1595,9 +1601,23 @@ import React, { useState, useEffect, useCallback } from "react";
                         )}
                       </Box>
                     ) : (
-                      <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, color: "#6b7280", textAlign: "right" }}>
-                        {item.quantity}
-                      </Typography>
+                      <>
+                        <Tooltip title="Required (ordered) quantity" placement="top" arrow>
+                          <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, color: "#6b7280", textAlign: "right" }}>
+                            {item.quantity}
+                          </Typography>
+                        </Tooltip>
+                        <Tooltip title="Approved quantity" placement="top" arrow>
+                          <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, fontWeight: 700, color: Number(item.approvedQty) > 0 ? "#16a34a" : "#9ca3af", textAlign: "right" }}>
+                            {Number(item.approvedQty) || 0}
+                          </Typography>
+                        </Tooltip>
+                        <Tooltip title="Remaining (still open) quantity" placement="top" arrow>
+                          <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, fontWeight: 700, color: balance > 0 ? "#d97706" : "#9ca3af", textAlign: "right" }}>
+                            {balance}
+                          </Typography>
+                        </Tooltip>
+                      </>
                     )}
                     <Typography sx={{ fontSize: { xs: 12, sm: 13, md: 13 }, textAlign: "right", color: isRejected ? "#9ca3af" : "#6b7280" }}>
                       ${item.unitCost.toFixed(2)}
@@ -2016,6 +2036,27 @@ import React, { useState, useEffect, useCallback } from "react";
     React.useEffect(() => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(purchaseOrders));
     }, [purchaseOrders]);
+
+    // ── Re-sync from localStorage whenever a GRN submission updates PO
+    //    balances out-of-band (see NewGRNDialog's updatePOAfterGRNSubmission,
+    //    which writes directly to localStorage and fires this event). Without
+    //    this listener, this component's own save-effect above would blindly
+    //    overwrite those changes with its stale in-memory copy. ──
+    React.useEffect(() => {
+      const onPOsUpdated = () => {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) setPurchaseOrders(parsed);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      };
+      window.addEventListener("purchaseOrdersUpdated", onPOsUpdated);
+      return () => window.removeEventListener("purchaseOrdersUpdated", onPOsUpdated);
+    }, []);
 
     React.useEffect(() => {
       if (locationNames && locationNames.length) setLocationsList(locationNames);

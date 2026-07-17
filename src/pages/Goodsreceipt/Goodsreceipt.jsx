@@ -110,9 +110,8 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
       const remaining = getRemaining(item);
 
       if (!selected.includes(idx)) {
-        // Item not selected — keep its current status if it was previously set, otherwise leave as undefined (Pending)
-        // Only update the reason if provided
-        return { ...item, itemApprovalReason: reason[idx] || item.itemApprovalReason || "" };
+        // Reject only the remaining balance; keep whatever was already approved earlier
+        return { ...item, itemApprovalStatus: "Rejected", itemApprovedQty: priorApproved, itemApprovalReason: reason[idx] || item.itemApprovalReason || "" };
       }
 
       const appQtyThisRound = Math.max(0, Math.min(Number(approvedQty[idx] ?? remaining), remaining));
@@ -159,7 +158,7 @@ function GRNItemApprovalModal({ open, onClose, receipt, onConfirm }) {
         </Box>
         <Box sx={{ display: "grid", gridTemplateColumns: "32px 24px minmax(0,3fr) 80px 80px 1fr", gap: { xs: 0.5, sm: 0.75, md: 1 }, px: { xs: 1, sm: 1.5, md: 1.75 }, mb: { xs: 0.5, sm: 0.75, md: 1 }, alignItems: "center" }}>
           <Box /><Box />
-          {["Item", "Purchase Qty", "Approve", "Reason (partial only)"].map((h, i) => (
+          {["Item", "Remaining", "Approve", "Reason (partial only)"].map((h, i) => (
             <Typography key={h} sx={{ fontSize: { xs: 9, sm: 10, md: 10 }, fontWeight: 700, color: i === 1 ? "#0284c7" : "#9ca3af", letterSpacing: "0.06em", textTransform: "uppercase", textAlign: i === 1 || i === 2 ? "center" : "left" }}>{h}</Typography>
           ))}
         </Box>

@@ -712,7 +712,15 @@ export default function NewGRNDialog({
                 ? String(master.cost)
                 : String(item.unitCost ?? ""),
             uom: master?.unitOfMeasure || "",
-            poQty: String(effectiveQty),
+            // ── FIX: poQty is what THIS GRN is entitled to receive right
+            //    now — the remaining open balance — not the cumulative
+            //    approvedQty across every approval round. Using
+            //    effectiveQty here made a fully-received leftover balance
+            //    look "short" (e.g. approvedQty=10 total after two rounds,
+            //    but only 5 remained open — rcvQty defaulted to 5 while
+            //    poQty showed 10, tripping the short-delivery flag even
+            //    though the full remaining amount was being received). ──
+            poQty: String(openQty),
             openQty,
             rcvQty: String(openQty),
             condition: "Good — No Issues",
@@ -925,7 +933,10 @@ export default function NewGRNDialog({
                 ? String(master.cost)
                 : String(item.unitCost ?? ""),
             uom: master?.uom || master?.unitOfMeasure || "",
-            poQty: String(effectiveQty),
+            // ── FIX: same reasoning as freshLines() above — poQty must be
+            //    the remaining open balance for this GRN, not the
+            //    cumulative approvedQty across all approval rounds. ──
+            poQty: String(remainingQty),
             openQty: remainingQty,
             rcvQty: String(remainingQty),
             condition: "Good — No Issues",
@@ -1057,6 +1068,19 @@ export default function NewGRNDialog({
           });
         });
 
+      // ── FIX: Do NOT overwrite the PO line's original `quantity`/`qty`
+      //    (the fixed ordered amount). Previously this block replaced
+      //    quantity/qty with the *remaining* balance after every GRN
+      //    submission, which corrupted every downstream calculation that
+      //    treats `quantity` as the fixed ordered amount (getLineBalance,
+      //    the approval modal, computePOStatus). That's what caused the
+      //    "last unit disappears" bug: after approving 9 of 10 and
+      //    submitting a GRN, quantity got overwritten to 1, so
+      //    approvedQty(9) - quantity(1) went negative, balance clamped to
+      //    0, and the item silently looked fully resolved — no more
+      //    Approve/Reject buttons and no eligibility for a new GRN on the
+      //    true leftover unit. We only track derived received/open fields
+      //    here; `quantity`/`qty` stay exactly as originally ordered. ──
       const lineItems = (po.lineItems || []).map((poItem) => {
         const key = (poItem.description || poItem.item || "").toLowerCase();
         const orderedQty = parseFloat(poItem.quantity ?? poItem.qty ?? 0) || 0;
@@ -1065,14 +1089,9 @@ export default function NewGRNDialog({
         const openQty = scClosedForUpdate.has(key)
           ? 0
           : Math.max(0, orderedQty - receivedQty);
-        
-        // Update PO quantity to remaining quantity for future GRNs
-        const updatedQuantity = openQty > 0 ? openQty : orderedQty;
-        
+
         return {
           ...poItem,
-          quantity: updatedQuantity,
-          qty: updatedQuantity,
           receivedQty,
           balanceQty: openQty,
           openQty,
