@@ -1151,95 +1151,34 @@ const IndentProcurementModal = ({
             </Typography>
           </Box>
 
-          {/* ── Row 1 — always 3 columns: Indent Type | Number | Date ── */}
+          {/* ── Row 1 — 2 columns: Indent Number | Date ── */}
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
+              gridTemplateColumns: "repeat(2, 1fr)",
               gap: "12px",
               mb: "12px",
             }}
           >
-            {/* Col 1 — Indent Type */}
+            {/* Col 1 — Indent No. */}
             <Box>
-              <Typography sx={labelSx}>Indent Type</Typography>
-              <Select
-                fullWidth
-                displayEmpty
-                size="small"
-                value={
-                  formData.indentType === "Select" ? "" : formData.indentType
-                }
-                onChange={(e) =>
-                  handleChange("indentType")({
-                    target: { value: e.target.value || "Select" },
-                  })
-                }
-                sx={selectSx}
-                renderValue={(v) =>
-                  v ? (
-                    v
-                  ) : (
-                    <span style={{ color: "#9ca3af", fontSize: 13 }}>
-                      Select
-                    </span>
-                  )
-                }
-              >
-                {indentTypes.map((type) => (
-                  <MenuItem key={type} value={type} sx={{ fontSize: 13 }}>
-                    {type}
-                  </MenuItem>
-                ))}
-              </Select>
-            </Box>
-
-            {/* Col 2 — Issue Number / Transfer Number / Indent No. */}
-            <Box>
-              <Typography sx={labelSx}>
-                {formData.indentType === "Stock Issue"
-                  ? "Issue Number"
-                  : formData.indentType === "Stock Transfer"
-                    ? "Transfer Number"
-                    : "Indent No."}
-              </Typography>
+              <Typography sx={labelSx}>Indent No.</Typography>
               <TextField
                 fullWidth
                 size="small"
-                value={
-                  formData.indentType === "Stock Issue"
-                    ? formData.issueNumber
-                    : formData.indentType === "Stock Transfer"
-                      ? formData.transferNumber
-                      : formData.indentNo
-                }
+                value={formData.indentNo}
                 disabled
                 sx={disabledInputSx}
                 inputProps={{ style: { color: "#6b7280", fontSize: 13 } }}
               />
             </Box>
 
-            {/* Col 3 — Date */}
+            {/* Col 2 — Date */}
             <Box>
               <Typography sx={labelSx}>Date</Typography>
               <DateField
-                value={
-                  formData.indentType === "Stock Issue"
-                    ? formData.issueDate
-                    : formData.indentType === "Stock Transfer"
-                      ? formData.transferDate
-                      : formData.indentDate
-                }
-                onChange={(v) =>
-                  setField(
-                    formData.indentType === "Stock Issue"
-                      ? "issueDate"
-                      : formData.indentType === "Stock Transfer"
-                        ? "transferDate"
-                        : "indentDate",
-                    v,
-                  )
-                }
+                value={formData.indentDate}
+                onChange={(v) => setField("indentDate", v)}
                 max={today}
                 disabled
               />

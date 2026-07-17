@@ -374,12 +374,13 @@ const NewPO = ({ open, onClose, onSave, onSaveAsDraft, initialIndentId, indentDa
           indentId: initialIndentId,
           supplier: lastSupplier || indent?.supplier || "",
           deliverTo: indent?.deliverTo || indentData.location || "",
+          requiredDelivery: indent?.requiredDelivery || indentData.requiredDelivery || "",
           priority: indentData.priority || "Low",
           lineItems: mergedItems.length > 0
             ? mergedItems
             : [{ id: 1, description: "", quantity: 1, unitCost: 0 }],
         }));
-        setTouched({ supplier: !!lastSupplier, deliverTo: true, requiredDelivery: false });
+        setTouched({ supplier: !!lastSupplier, deliverTo: true, requiredDelivery: true });
         return;
       }
 
@@ -990,7 +991,7 @@ const NewPO = ({ open, onClose, onSave, onSaveAsDraft, initialIndentId, indentDa
                           </Box>
                         )}
                         renderInput={(params) => (
-                          <TextField {...params} placeholder="Search item from inventory…" sx={rowFieldSx()} />
+                          <TextField {...params} placeholder="Search item from inventory" sx={rowFieldSx()} />
                         )}
                         ListboxProps={{
                           sx: {
@@ -1003,21 +1004,23 @@ const NewPO = ({ open, onClose, onSave, onSaveAsDraft, initialIndentId, indentDa
                         }}
                       />
                     ) : (
-                      <TextField size="small" placeholder="Item description…" value={item.description} disabled fullWidth sx={disabledInputSx} />
+                      <TextField size="small" placeholder="Item description" value={item.description} disabled fullWidth sx={disabledInputSx} />
                     )}
                     <TextField
                       size="small" type="number"
                       value={item.quantity}
                       onChange={handleLineItemChange(item.id, "quantity")}
+                      disabled={fromIndent}
                       inputProps={{ min: 1 }}
-                      sx={rowFieldSx({ textAlign: "center" })}
+                      sx={fromIndent ? disabledInputSx : rowFieldSx({ textAlign: "center" })}
                     />
                     <TextField
                       size="small" type="number" placeholder="0.00"
                       value={item.unitCost}
                       onChange={handleLineItemChange(item.id, "unitCost")}
+                      disabled={fromIndent}
                       inputProps={{ min: 0, step: 0.01 }}
-                      sx={{ ...rowFieldSx(), "& .MuiInputBase-input": { textAlign: "right", py: "6px", px: "8px" } }}
+                      sx={fromIndent ? disabledInputSx : { ...rowFieldSx(), "& .MuiInputBase-input": { textAlign: "right", py: "6px", px: "8px" } }}
                     />
                     <IconButton
                       size="small"

@@ -657,7 +657,7 @@ const StatCard = ({ label, count, sub, iconBg, iconEl }) => {
 
 // -- Table column definitions --
 const HEAD_COLS = [
-  { id: "indentNo", label: "Indent # / Type", width: "120px" },
+  { id: "indentNo", label: "Indent #", width: "120px" },
   { id: "location", label: "Location / Department", width: "160px" },
   { id: "priority", label: "Priority & Status", width: "130px" },
   { id: "requestedBy", label: "Requested By", width: "140px" },
@@ -1089,10 +1089,7 @@ function IndentViewModal({ open, onClose, indent, onViewGRN, onViewPO }) {
               <Typography sx={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.5px", mb: 0.25 }}>Indent Number</Typography>
               <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{indent.indentNo}</Typography>
             </Grid>
-            <Grid item xs={3}>
-              <Typography sx={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.5px", mb: 0.25 }}>Type</Typography>
-              <Chip label={indent.indentType || "—"} size="small" sx={{ fontWeight: 600, fontSize: 11, bgcolor: "#f3f4f6", height: 22 }} />
-            </Grid>
+
             <Grid item xs={3}>
               <Typography sx={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.5px", mb: 0.25 }}>Location</Typography>
               <Typography sx={{ fontSize: 12, color: "#374151" }}>{indent.location || "—"}</Typography>
@@ -1659,13 +1656,10 @@ const IndentProcurement = () => {
                         boxShadow: highlightedIndentId === row.indentNo ? "inset 0 0 0 2px #f59e0b" : "none",
                       }}
                     >
-                      {/* Col 1: Indent # / Type */}
+                      {/* Col 1: Indent # */}
                       <TableCell sx={{ ...tdSx, minWidth: 120 }}>
-                        <Tooltip title={`${isStockIssue ? 'Issue' : isStockTransfer ? 'Transfer' : 'Indent'}: ${isStockIssue ? row.issueNumber : isStockTransfer ? row.transferNumber : row.indentNo}`} placement="top" arrow>
-                          <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#111827", lineHeight: 1.3 }}>{isStockIssue ? row.issueNumber : isStockTransfer ? row.transferNumber : row.indentNo || "—"}</Typography>
-                        </Tooltip>
-                        <Tooltip title={`Type: ${row.indentType || "—"}`} placement="top" arrow>
-                          <Typography sx={{ fontSize: 11, color: "#9ca3af", mt: "4px" }}>{row.indentType || "—"}</Typography>
+                        <Tooltip title={`Indent: ${row.indentNo}`} placement="top" arrow>
+                          <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#111827", lineHeight: 1.3 }}>{row.indentNo || "—"}</Typography>
                         </Tooltip>
                       </TableCell>
 

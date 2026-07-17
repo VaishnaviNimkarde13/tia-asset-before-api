@@ -35,7 +35,8 @@ export default function ItemApprovalModal({ open, onClose, indent, mode, onConfi
   const [approvedQty, setApprovedQty] = useState(() => {
     const init = {};
     actionableItems.forEach((it) => {
-      init[it.id ?? it.itemName] = remainingQty(it);
+      const remQty = remainingQty(it);
+      init[it.id ?? it.itemName] = remQty > 0 ? remQty : 0;
     });
     return init;
   });
@@ -305,7 +306,7 @@ export default function ItemApprovalModal({ open, onClose, indent, mode, onConfi
                             <Typography sx={{ fontSize: 9, color: "#9ca3af", mb: "1px" }}>Approve</Typography>
                             <TextField
                               size="small" type="number"
-                              value={appQty === 0 ? "" : appQty}
+                              value={String(appQty || "")}
                               disabled={!isChecked || !actionable}
                               placeholder={String(remQty)}
                               onChange={(e) => {
