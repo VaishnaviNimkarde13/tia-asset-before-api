@@ -197,15 +197,15 @@ export default function ItemApprovalModal({ open, onClose, indent, mode, onConfi
                 Item
               </Typography>
               <Typography sx={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", textTransform: "uppercase", textAlign: "center" }}>
-                {isApprove ? "Req." : "Req. Qty"}
+                {isApprove ? "Req" : "Req Qty"}
               </Typography>
               {isApprove && (
                 <>
                   <Typography sx={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", textTransform: "uppercase", textAlign: "center" }}>
-                    Appr.
+                    Appr
                   </Typography>
                   <Typography sx={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                    Reason <span style={{ fontWeight: 400 }}>(partial only)</span>
+                    Reason 
                   </Typography>
                 </>
               )}
@@ -286,11 +286,7 @@ export default function ItemApprovalModal({ open, onClose, indent, mode, onConfi
                             }} />
                           )}
                         </Box>
-                        {isPartialItem && (
-                          <Typography sx={{ fontSize: 10, color: "#6b7280", mt: "1px" }}>
-                            Already approved: <strong>{alreadyApp}</strong> of {reqQty} · Remaining: <strong>{remQty}</strong>
-                          </Typography>
-                        )}
+                       
                       </Box>
 
                       {/* Qty */}
