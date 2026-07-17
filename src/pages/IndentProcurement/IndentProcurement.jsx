@@ -1858,13 +1858,20 @@ const IndentProcurement = () => {
                 });
                 return {
                   ...r,
-                  lineItems: (r.lineItems || []).map((it) => {
+                 lineItems: (r.lineItems || []).map((it) => {
                     if (it.status !== "Approved" && it.status !== "Partial Approved") return it;
                     const key = (it.itemName || "").toLowerCase();
                     const addedQty = poQtyMap[key] || 0;
                     const newOrderedQty = (it.orderedQty || 0) + addedQty;
                     const effApproved = Number(it.approvedQty ?? it.qtyReq ?? it.qty ?? 0);
-                    return { ...it, status: "PO Generated", orderedQty: newOrderedQty, balanceToOrder: Math.max(0, effApproved - newOrderedQty) };
+                    const reqQty = Number(it.qtyReq ?? it.qty ?? 0);
+                    const fullyDecided = effApproved >= reqQty; // still remainder undecided if false
+                    return {
+                      ...it,
+                      status: fullyDecided ? "PO Generated" : "Partial Approved",
+                      orderedQty: newOrderedQty,
+                      balanceToOrder: Math.max(0, effApproved - newOrderedQty),
+                    };
                   }),
                 };
               }),

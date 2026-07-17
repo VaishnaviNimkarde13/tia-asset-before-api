@@ -420,20 +420,7 @@ export default function ItemApprovalModal({ open, onClose, indent, mode, onConfi
                       </Box>
                     )}
 
-                    {/* Partial approval badge */}
-                    {isApprove && isChecked && actionable && isPartial && (
-                      <Box sx={{
-                        ml: "48px", mt: "3px",
-                        display: "inline-flex", alignItems: "center", gap: "5px",
-                        px: "8px", py: "2px", borderRadius: "5px",
-                        bgcolor: "#fffbeb", border: "1px solid #fde68a",
-                      }}>
-                        <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "#f59e0b" }} />
-                        <Typography sx={{ fontSize: 10, color: "#92400e", fontWeight: 600 }}>
-                          Approving {appQty} of {remQty} remaining {item.uom || "units"} · item stays open
-                        </Typography>
-                      </Box>
-                    )}
+                
                   </Box>
                 );
               })}
