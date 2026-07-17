@@ -459,7 +459,7 @@ import React, { useState, useEffect, useCallback } from "react";
               >
                 <Box />
                 <Box />
-                {["Item", isFirstRound ? "Indent Approved" : "Remaining Qty", isApprove ? "Approve" : "Reject", "Reason"].map(
+                {["Item", po?.indentId && po.indentId !== "—" ? "Indent Approved" : "Required Quantity", isApprove ? "Approve" : "Reject", "Reason"].map(
                   (h, i) => (
                     <Typography
                       key={h}
@@ -550,9 +550,7 @@ import React, { useState, useEffect, useCallback } from "react";
                         </Box>
                         <Box sx={{ textAlign: "center" }}>
                           <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed" }}>
-                            {isFirstRound
-                              ? (item.indentApprovedQty != null ? item.indentApprovedQty : item.quantity)
-                              : balance}
+                            {balance}
                           </Typography>
                        
                          
@@ -1209,7 +1207,11 @@ import React, { useState, useEffect, useCallback } from "react";
           total: (draftLines[i]?.quantity ?? item.quantity) * item.unitCost,
           rejected: draftLines[i]?.rejected ?? false,
         }))
-      : (po.lineItems || []).map((item) => ({ ...item, rejected: false }));
+      : (po.lineItems || []).map((item) => ({ 
+          ...item, 
+          total: Number(item.approvedQty || 0) * item.unitCost,
+          rejected: false 
+        }));
 
     const poTotal = displayItems
       .filter((item) => !item.rejected)

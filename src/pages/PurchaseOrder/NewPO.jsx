@@ -914,7 +914,10 @@ const NewPO = ({ open, onClose, onSave, onSaveAsDraft, initialIndentId, indentDa
                 gap: "4px", mb: "4px", px: "10px",
               }}
             >
-              {(formData.indentId ? ["INDENT ID", "ITEM DESCRIPTION", "QTY", "UNIT COST", ""] : ["ITEM DESCRIPTION", "QTY", "UNIT COST", ""]).map((h) => (
+              {(formData.indentId
+                ? ["INDENT ID", "ITEM DESCRIPTION", "APPROVED QTY", "UNIT COST", ""]
+                : ["ITEM DESCRIPTION", "REQUIRED QTY", "UNIT COST", ""]
+              ).map((h) => (
                 <Typography key={h} sx={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", letterSpacing: "0.04em", textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {h}
                 </Typography>
