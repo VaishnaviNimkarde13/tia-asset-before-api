@@ -629,6 +629,9 @@ export default function NewGRNDialog({
     return map;
   })();
 
+  // ── FIX: Only close items from SHORT CLOSE GRNs (buyer accepted partial as final).
+  //    Short Delivery GRNs mean supplier sent less THIS TIME but more is still expected.
+  //    So we only use isShortClose / status === "Short Close" here — NOT isShortDelivery.
   const shortCloseClosedSet = (() => {
     if (!po) return new Set();
     const set = new Set();
@@ -673,6 +676,10 @@ export default function NewGRNDialog({
     tsConfirmed: false,
   });
 
+  // Only items with an actual approved quantity (approvedQty > 0) are
+  // eligible to be received against — an item that's still fully Pending
+  // (never approved/rejected) has nothing cleared for receipt yet, even
+  // though its overall balance is still "open" from an approval standpoint.
   const freshLines = () => {
     if (po?.lineItems?.length) {
       const eligibleItems = po.lineItems.filter(
@@ -1073,6 +1080,19 @@ export default function NewGRNDialog({
           });
         });
 
+      // ── FIX: Do NOT overwrite the PO line's original `quantity`/`qty`
+      //    (the fixed ordered amount). Previously this block replaced
+      //    quantity/qty with the *remaining* balance after every GRN
+      //    submission, which corrupted every downstream calculation that
+      //    treats `quantity` as the fixed ordered amount (getLineBalance,
+      //    the approval modal, computePOStatus). That's what caused the
+      //    "last unit disappears" bug: after approving 9 of 10 and
+      //    submitting a GRN, quantity got overwritten to 1, so
+      //    approvedQty(9) - quantity(1) went negative, balance clamped to
+      //    0, and the item silently looked fully resolved — no more
+      //    Approve/Reject buttons and no eligibility for a new GRN on the
+      //    true leftover unit. We only track derived received/open fields
+      //    here; `quantity`/`qty` stay exactly as originally ordered. ──
       const lineItems = (po.lineItems || []).map((poItem) => {
         const key = (poItem.description || poItem.item || "").toLowerCase();
         const orderedQty = parseFloat(poItem.quantity ?? poItem.qty ?? 0) || 0;
