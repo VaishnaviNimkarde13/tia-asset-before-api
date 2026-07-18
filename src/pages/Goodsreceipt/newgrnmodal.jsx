@@ -103,6 +103,7 @@ function DateField({ value, onChange, readOnly = false }) {
         ref={ref}
         type="date"
         value={value}
+        min={new Date().toISOString().split("T")[0]} // ✅ Prevent past dates
         readOnly={readOnly}
         onChange={readOnly ? undefined : (e) => onChange(e.target.value)}
         style={{
@@ -206,7 +207,6 @@ const rowFieldSx = (extraInput = {}, extraRoot = {}) => ({
   "& input::-webkit-outer-spin-button": { WebkitAppearance: "none", margin: 0 },
   "& input::-webkit-inner-spin-button": { WebkitAppearance: "none", margin: 0 },
 });
-
 
 function BarcodeScannerModal({ open, onClose, onResult }) {
   const videoRef = useRef(null);
@@ -629,9 +629,6 @@ export default function NewGRNDialog({
     return map;
   })();
 
-  // ── FIX: Only close items from SHORT CLOSE GRNs (buyer accepted partial as final).
-  //    Short Delivery GRNs mean supplier sent less THIS TIME but more is still expected.
-  //    So we only use isShortClose / status === "Short Close" here — NOT isShortDelivery.
   const shortCloseClosedSet = (() => {
     if (!po) return new Set();
     const set = new Set();
@@ -658,6 +655,8 @@ export default function NewGRNDialog({
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
 
+ 
+
   const fresh = () => ({
     grnNumber: nextId || "GRN-2026-0006",
     linkedPO: po?.id || "",
@@ -674,10 +673,6 @@ export default function NewGRNDialog({
     tsConfirmed: false,
   });
 
-  // Only items with an actual approved quantity (approvedQty > 0) are
-  // eligible to be received against — an item that's still fully Pending
-  // (never approved/rejected) has nothing cleared for receipt yet, even
-  // though its overall balance is still "open" from an approval standpoint.
   const freshLines = () => {
     if (po?.lineItems?.length) {
       const eligibleItems = po.lineItems.filter(
@@ -832,10 +827,13 @@ export default function NewGRNDialog({
   );
 
   const linesWithMissingRequired = lines.filter(
-    (ln) => ln.item && (!ln.condition?.trim() || !ln.lotNo?.trim() || !ln.expiry?.trim()),
+    (ln) =>
+      ln.item &&
+      (!ln.condition?.trim() || !ln.lotNo?.trim() || !ln.expiry?.trim()),
   );
 
-  const isSubmitDisabled = linesWithMissingRequired.length > 0 || shortLinesWithoutReason.length > 0;
+  const isSubmitDisabled =
+    linesWithMissingRequired.length > 0 || shortLinesWithoutReason.length > 0;
 
   const shortSummary = lines.filter(lineIsShort).map((ln) => {
     const gap = parseFloat(ln.poQty) - parseFloat(ln.rcvQty);
@@ -900,7 +898,8 @@ export default function NewGRNDialog({
         .forEach((grn) => {
           (grn.lineItems || []).forEach((lineItem) => {
             const key = (lineItem.item || "").toLowerCase();
-            alreadyRcvMap[key] = (alreadyRcvMap[key] || 0) + (parseFloat(lineItem.rcvQty) || 0);
+            alreadyRcvMap[key] =
+              (alreadyRcvMap[key] || 0) + (parseFloat(lineItem.rcvQty) || 0);
           });
         });
 
@@ -915,11 +914,14 @@ export default function NewGRNDialog({
               (item.description || "").toLowerCase().trim(),
           );
           const effectiveQty = Number(item.approvedQty);
-          const alreadyReceivedQty = alreadyRcvMap[(item.description || "").toLowerCase()] || 0;
+          const alreadyReceivedQty =
+            alreadyRcvMap[(item.description || "").toLowerCase()] || 0;
           const remainingQty = Math.max(0, effectiveQty - alreadyReceivedQty);
 
           // ── FIX: Only flag items closed by Short Close (not short delivery) ──
-          const isSCClosed = scClosedSet.has((item.description || "").toLowerCase());
+          const isSCClosed = scClosedSet.has(
+            (item.description || "").toLowerCase(),
+          );
 
           return {
             id: Date.now() + Math.random(),
@@ -1029,7 +1031,9 @@ export default function NewGRNDialog({
 
   const updatePOAfterGRNSubmission = (poId, grnsCreated = []) => {
     try {
-      const pos = JSON.parse(localStorage.getItem("purchase_orders_data") || "[]");
+      const pos = JSON.parse(
+        localStorage.getItem("purchase_orders_data") || "[]",
+      );
       const po = pos.find((p) => p.id === poId);
       if (!po) return;
 
@@ -1050,7 +1054,8 @@ export default function NewGRNDialog({
         (grn.lineItems || []).forEach((li) => {
           const key = (li.item || "").toLowerCase();
           if (!key) return;
-          receivedByItem[key] = (receivedByItem[key] || 0) + (parseFloat(li.rcvQty) || 0);
+          receivedByItem[key] =
+            (receivedByItem[key] || 0) + (parseFloat(li.rcvQty) || 0);
         });
       });
 
@@ -1068,19 +1073,6 @@ export default function NewGRNDialog({
           });
         });
 
-      // ── FIX: Do NOT overwrite the PO line's original `quantity`/`qty`
-      //    (the fixed ordered amount). Previously this block replaced
-      //    quantity/qty with the *remaining* balance after every GRN
-      //    submission, which corrupted every downstream calculation that
-      //    treats `quantity` as the fixed ordered amount (getLineBalance,
-      //    the approval modal, computePOStatus). That's what caused the
-      //    "last unit disappears" bug: after approving 9 of 10 and
-      //    submitting a GRN, quantity got overwritten to 1, so
-      //    approvedQty(9) - quantity(1) went negative, balance clamped to
-      //    0, and the item silently looked fully resolved — no more
-      //    Approve/Reject buttons and no eligibility for a new GRN on the
-      //    true leftover unit. We only track derived received/open fields
-      //    here; `quantity`/`qty` stay exactly as originally ordered. ──
       const lineItems = (po.lineItems || []).map((poItem) => {
         const key = (poItem.description || poItem.item || "").toLowerCase();
         const orderedQty = parseFloat(poItem.quantity ?? poItem.qty ?? 0) || 0;
@@ -1143,11 +1135,23 @@ export default function NewGRNDialog({
     setSubmitAttempted(true);
     if (shortLinesWithoutReason.length > 0) return;
 
-    const discrepancyConditions = ["Damaged", "Cold Chain Breach", "Wrong Item", "Expiry"];
-    const goodLines = lines.filter((l) => l.item && (!l.condition || l.condition === "Good — No Issues"));
-    const shortCloseLines = lines.filter((l) => l.item && l.condition === "Short Close");
-    const discrepancyLines = lines.filter((l) =>
-      l.item && l.condition && discrepancyConditions.some(cond => l.condition.includes(cond))
+    const discrepancyConditions = [
+      "Damaged",
+      "Cold Chain Breach",
+      "Wrong Item",
+      "Expiry",
+    ];
+    const goodLines = lines.filter(
+      (l) => l.item && (!l.condition || l.condition === "Good — No Issues"),
+    );
+    const shortCloseLines = lines.filter(
+      (l) => l.item && l.condition === "Short Close",
+    );
+    const discrepancyLines = lines.filter(
+      (l) =>
+        l.item &&
+        l.condition &&
+        discrepancyConditions.some((cond) => l.condition.includes(cond)),
     );
 
     const grnsToSave = [];
@@ -1155,11 +1159,12 @@ export default function NewGRNDialog({
     // GRN for good items (received quantity)
     if (goodLines.length > 0) {
       const goodTotal = goodLines.reduce(
-        (s, l) => s + (parseFloat(l.rcvQty) || 0) * (parseFloat(l.unitCost) || 0),
+        (s, l) =>
+          s + (parseFloat(l.rcvQty) || 0) * (parseFloat(l.unitCost) || 0),
         0,
       );
 
-      const hasShortDeliveryLines = goodLines.some(l => lineIsShort(l));
+      const hasShortDeliveryLines = goodLines.some((l) => lineIsShort(l));
       const grnStatus = hasShortDeliveryLines ? "Short Delivery" : "Pending";
 
       const goodGRN = {
@@ -1170,7 +1175,10 @@ export default function NewGRNDialog({
         items: goodLines.length,
         totalValue: `$${goodTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         receivedBy: form.receivedBy,
-        receivedQty: goodLines.reduce((s, l) => s + (parseFloat(l.rcvQty) || 0), 0),
+        receivedQty: goodLines.reduce(
+          (s, l) => s + (parseFloat(l.rcvQty) || 0),
+          0,
+        ),
         date: new Date(form.receiptDate).toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
@@ -1198,7 +1206,10 @@ export default function NewGRNDialog({
         // ── FIX: isShortDelivery only true when short lines exist; isShortClose is false ──
         isShortDelivery: hasShortDeliveryLines,
         isShortClose: false,
-        shortCloseReasons: goodLines.filter(lineIsShort).map((ln) => ln.shortCloseReason?.trim()).filter(Boolean),
+        shortCloseReasons: goodLines
+          .filter(lineIsShort)
+          .map((ln) => ln.shortCloseReason?.trim())
+          .filter(Boolean),
         grnType: "submitted",
       };
       grnsToSave.push(goodGRN);
@@ -1207,7 +1218,8 @@ export default function NewGRNDialog({
     // SHORT CLOSE GRN
     if (shortCloseLines.length > 0) {
       const shortCloseTotal = shortCloseLines.reduce(
-        (s, l) => s + (parseFloat(l.rcvQty) || 0) * (parseFloat(l.unitCost) || 0),
+        (s, l) =>
+          s + (parseFloat(l.rcvQty) || 0) * (parseFloat(l.unitCost) || 0),
         0,
       );
       const shortCloseReasons = shortCloseLines
@@ -1222,7 +1234,10 @@ export default function NewGRNDialog({
         items: shortCloseLines.length,
         totalValue: `$${shortCloseTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         receivedBy: form.receivedBy,
-        receivedQty: shortCloseLines.reduce((s, l) => s + (parseFloat(l.rcvQty) || 0), 0),
+        receivedQty: shortCloseLines.reduce(
+          (s, l) => s + (parseFloat(l.rcvQty) || 0),
+          0,
+        ),
         date: new Date(form.receiptDate).toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
@@ -1260,14 +1275,15 @@ export default function NewGRNDialog({
     // DISCREPANCY GRN
     if (discrepancyLines.length > 0) {
       const discrepancyTotal = discrepancyLines.reduce(
-        (s, l) => s + (parseFloat(l.rcvQty) || 0) * (parseFloat(l.unitCost) || 0),
+        (s, l) =>
+          s + (parseFloat(l.rcvQty) || 0) * (parseFloat(l.unitCost) || 0),
         0,
       );
 
       const conditionPriority = {
-        "Expiry": 6,
+        Expiry: 6,
         "Cold Chain Breach": 5,
-        "Damaged": 4,
+        Damaged: 4,
         "Wrong Item": 3,
         "Short Close": 2,
         "Good — No Issues": 1,
@@ -1293,7 +1309,10 @@ export default function NewGRNDialog({
         items: discrepancyLines.length,
         totalValue: `$${discrepancyTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         receivedBy: form.receivedBy,
-        receivedQty: discrepancyLines.reduce((s, l) => s + (parseFloat(l.rcvQty) || 0), 0),
+        receivedQty: discrepancyLines.reduce(
+          (s, l) => s + (parseFloat(l.rcvQty) || 0),
+          0,
+        ),
         date: new Date(form.receiptDate).toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
@@ -1320,7 +1339,10 @@ export default function NewGRNDialog({
         })),
         isShortClose: discrepancyLines.some(lineIsShort),
         isShortDelivery: false,
-        shortCloseReasons: discrepancyLines.filter(lineIsShort).map((ln) => ln.shortCloseReason?.trim()).filter(Boolean),
+        shortCloseReasons: discrepancyLines
+          .filter(lineIsShort)
+          .map((ln) => ln.shortCloseReason?.trim())
+          .filter(Boolean),
         grnType: "submitted",
       };
 
@@ -1340,10 +1362,10 @@ export default function NewGRNDialog({
       );
 
       const conditionToReason = {
-        "Damaged": "Damaged",
+        Damaged: "Damaged",
         "Cold Chain Breach": "Cold Chain Breach",
         "Wrong Item": "Wrong Item",
-        "Expiry": "Expired",
+        Expiry: "Expired",
       };
 
       const reason =
@@ -1506,13 +1528,9 @@ export default function NewGRNDialog({
               <Typography
                 sx={{ fontSize: 16, fontWeight: 700, color: "#111827" }}
               >
-                {draftGRN ? "Edit Draft GRN" : "Goods Receipt Note"}
+                Goods Receipt Note
               </Typography>
-              <Typography sx={{ fontSize: 12, color: "#9ca3af", mt: "1px" }}>
-                {draftGRN
-                  ? `Editing draft — ${draftGRN.id} · submit to finalise`
-                  : "Record delivery against a PO — stock updates on save"}
-              </Typography>
+          
             </Box>
           </Box>
           <IconButton
@@ -1585,10 +1603,10 @@ export default function NewGRNDialog({
                           lineHeight: 1.5,
                         }}
                       >
-                        A Short Delivery is raised when the supplier delivers fewer
-                        units than ordered. A reason is required per affected
-                        line before submitting the GRN. The remaining quantity
-                        will still be available for future GRNs.
+                        A Short Delivery is raised when the supplier delivers
+                        fewer units than ordered. A reason is required per
+                        affected line before submitting the GRN. The remaining
+                        quantity will still be available for future GRNs.
                       </Typography>
                     </Box>
                   }
@@ -1765,11 +1783,7 @@ export default function NewGRNDialog({
                       </MenuItem>
                     ) : (
                       allPOs.map((p) => (
-                        <MenuItem
-                          key={p.id}
-                          value={p.id}
-                          sx={{ fontSize: 13 }}
-                        >
+                        <MenuItem key={p.id} value={p.id} sx={{ fontSize: 13 }}>
                           <Box>
                             <Typography
                               sx={{
@@ -1780,9 +1794,7 @@ export default function NewGRNDialog({
                             >
                               {p.id}
                             </Typography>
-                            <Typography
-                              sx={{ fontSize: 11, color: "#9ca3af" }}
-                            >
+                            <Typography sx={{ fontSize: 11, color: "#9ca3af" }}>
                               {p.supplier} · {p.lines} item
                               {p.lines !== 1 ? "s" : ""}
                             </Typography>
@@ -1996,7 +2008,15 @@ export default function NewGRNDialog({
                 px: "10px",
               }}
             >
-              {["ITEM", "PO QTY", "RCV QTY", "LOT #", "EXPIRY", "CONDITION", ""].map((h) => (
+              {[
+                "ITEM",
+                "PO QTY",
+                "RCV QTY",
+                "LOT NO",
+                "EXPIRY",
+                "CONDITION",
+                "",
+              ].map((h) => (
                 <Typography
                   key={h}
                   sx={{
@@ -2158,8 +2178,7 @@ export default function NewGRNDialog({
                         }}
                         inputProps={{
                           min: 0,
-                          max:
-                            line.openQty != null ? line.openQty : undefined,
+                          max: line.openQty != null ? line.openQty : undefined,
                         }}
                         sx={rowFieldSx(
                           { textAlign: "center" },
@@ -2257,6 +2276,8 @@ export default function NewGRNDialog({
                         <CloseIcon sx={{ fontSize: 14 }} />
                       </IconButton>
 
+                    
+
                       {line.item && (
                         <Box
                           sx={{
@@ -2305,91 +2326,6 @@ export default function NewGRNDialog({
                               </Box>
                             ) : null;
                           })()}
-
-                          {[
-                            { label: "Item Code", value: line.itemCode },
-                            { label: "NDC / SKU", value: line.ndc },
-                            { label: "Category", value: line.category },
-                            { label: "Supplier", value: line.supplier },
-                            {
-                              label: "Unit Cost",
-                              value: line.unitCost
-                                ? `$${line.unitCost}`
-                                : "",
-                            },
-                            { label: "UOM", value: line.uom },
-                          ].map(({ label, value }) =>
-                            value ? (
-                              <Box
-                                key={label}
-                                sx={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  px: "8px",
-                                  py: "3px",
-                                  borderRadius: "20px",
-                                  bgcolor: "#eff6ff",
-                                  border: "1px solid #bfdbfe",
-                                }}
-                              >
-                                <Typography
-                                  sx={{
-                                    fontSize: 10,
-                                    color: "#6b7280",
-                                    fontWeight: 600,
-                                  }}
-                                >
-                                  {label}:
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    fontSize: 10,
-                                    color: "#1d4ed8",
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  {value}
-                                </Typography>
-                                <LockOutlinedIcon
-                                  sx={{ fontSize: 9, color: "#93c5fd" }}
-                                />
-                              </Box>
-                            ) : null,
-                          )}
-                          {line.fromMaster && (
-                            <Box
-                              sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                px: "8px",
-                                py: "3px",
-                                borderRadius: "20px",
-                                bgcolor: "#f0fdf4",
-                                border: "1px solid #bbf7d0",
-                                ml: "auto",
-                              }}
-                            >
-                              <Box
-                                sx={{
-                                  width: 6,
-                                  height: 6,
-                                  borderRadius: "50%",
-                                  bgcolor: "#22c55e",
-                                }}
-                              />
-                              <Typography
-                                sx={{
-                                  fontSize: 10,
-                                  color: "#15803d",
-                                  fontWeight: 700,
-                                }}
-                              >
-                                From Item Master
-                              </Typography>
-                            </Box>
-                          )}
                         </Box>
                       )}
 
@@ -2523,8 +2459,7 @@ export default function NewGRNDialog({
                                 {line.poQty}
                               </span>{" "}
                               —{" "}
-                              {parseFloat(line.poQty) -
-                                parseFloat(line.rcvQty)}{" "}
+                              {parseFloat(line.poQty) - parseFloat(line.rcvQty)}{" "}
                               unit
                               {parseFloat(line.poQty) -
                                 parseFloat(line.rcvQty) !==
@@ -2645,8 +2580,6 @@ export default function NewGRNDialog({
             </Box>
           </Box>
 
-          <Divider sx={{ mb: "12px" }} />
-
           {/* Remarks */}
           <Box sx={{ mb: "12px" }}>
             <Typography sx={labelSx}>Remarks / Discrepancy Notes</Typography>
@@ -2695,9 +2628,7 @@ export default function NewGRNDialog({
                   fullWidth
                   size="small"
                   value={form.supplierInvoice}
-                  onChange={(e) =>
-                    setField("supplierInvoice", e.target.value)
-                  }
+                  onChange={(e) => setField("supplierInvoice", e.target.value)}
                   placeholder="e.g. INV-2026-0482"
                   sx={inputSx}
                 />
@@ -2730,9 +2661,7 @@ export default function NewGRNDialog({
                 control={
                   <Checkbox
                     checked={form.tsConfirmed}
-                    onChange={(e) =>
-                      setField("tsConfirmed", e.target.checked)
-                    }
+                    onChange={(e) => setField("tsConfirmed", e.target.checked)}
                     size="small"
                     sx={{
                       color: "#c4b5fd",
@@ -2828,9 +2757,7 @@ export default function NewGRNDialog({
             )}
             {(linesWithMissingRequired.length > 0 || hasShortDelivery) &&
               !submitAttempted && (
-                <Box
-                  sx={{ display: "flex", alignItems: "center", gap: "6px" }}
-                >
+                <Box sx={{ display: "flex", alignItems: "center", gap: "6px" }}>
                   <InfoOutlinedIcon
                     sx={{ fontSize: 13, color: "#ea580c", flexShrink: 0 }}
                   />
