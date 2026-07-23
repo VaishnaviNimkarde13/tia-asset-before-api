@@ -96,6 +96,9 @@ const statusStyle = (s) => {
   return map[s] || { bg: "#f3f4f6", color: "#374151", border: "#e5e7eb" };
 };
 
+// Helper: is there a real, usable linked GRN on this row?
+const hasRealGRN = (row) => Boolean(row.linkedGRN) && row.linkedGRN !== "-";
+
 // ─── Shared input sx ──────────────────────────────────────────────────────────
 
 const inputSx = {
@@ -167,10 +170,12 @@ function RaiseReplacementModal({ onClose, onSubmit }) {
     return "Low";
   };
 
+  // GRN reference is now OPTIONAL — only item and replace qty are required.
   const handleSave = (raisePO) => {
-    if (!form.item || !form.replaceQty || !form.linkedGRN) return;
+    if (!form.item || !form.replaceQty) return;
     onSubmit({
-      linkedGRN: form.linkedGRN, item: form.item.split(" — ")[0], location: form.location,
+      linkedGRN: form.linkedGRN || "-", // fallback when left blank
+      item: form.item.split(" — ")[0], location: form.location,
       reason: form.reason, urgency: urgencyToShort(form.urgency), disposed: form.disposed || "-",
       replaceQty: form.replaceQty,
       substitute: form.useSubstitute && form.substitute
@@ -198,8 +203,14 @@ function RaiseReplacementModal({ onClose, onSubmit }) {
           <Box sx={{ p: "20px 24px", overflowY: "auto", flex: 1, "&::-webkit-scrollbar": { width: 5 }, "&::-webkit-scrollbar-thumb": { bgcolor: "#e2e8f0", borderRadius: 99 } }}>
             <SecLabel text="Linked GRN" />
             <Box sx={{ mb: 2.5 }}>
-              <FLabel text="GRN Reference *" />
-              <TextField size="small" value={form.linkedGRN} onChange={(e) => set("linkedGRN", e.target.value)} placeholder="e.g. GRN-2026-0001" sx={inputSx} />
+              <FLabel text="GRN Reference" />
+              <TextField
+                size="small"
+                value={form.linkedGRN}
+                onChange={(e) => set("linkedGRN", e.target.value)}
+                placeholder="e.g. GRN-2026-0001 (optional)"
+                sx={inputSx}
+              />
             </Box>
             <Divider sx={{ my: 2.25 }} />
             <SecLabel text="Item Being Replaced" />
@@ -529,7 +540,7 @@ export default function Replacement() {
   const handleViewDetails = (replacement) => { setSelectedReplacement(replacement); setViewDetailsOpen(true); };
 
   const handleViewGRN = (replacement) => {
-    if (!replacement.linkedGRN) return;
+    if (!hasRealGRN(replacement)) return;
     try {
       const grns = JSON.parse(localStorage.getItem("grn_data") || "[]");
       const grn = grns.find((g) => g.id === replacement.linkedGRN);
@@ -547,6 +558,7 @@ export default function Replacement() {
   };
 
   const handleGenerateVendorReturn = (replacement) => {
+    if (!hasRealGRN(replacement)) return;
     const year = new Date().getFullYear();
     const vendorReturns = JSON.parse(localStorage.getItem("vendor_returns_data") || "[]");
     const maxNum = vendorReturns.reduce((max, vr) => { const match = vr.id?.match(/VR-\d{4}-(\d+)/); return match ? Math.max(max, parseInt(match[1], 10)) : max; }, 0);
@@ -782,6 +794,7 @@ export default function Replacement() {
               paginated.map((row, idx) => {
                 const us = urgencyStyle(row.urgency);
                 const ss = statusStyle(row.status);
+                const grnAvailable = hasRealGRN(row);
                 return (
                   <TableRow key={row.id} sx={{ background: "#fff", "&:hover": { background: "#fafafa" }, transition: "background 0.15s", "& td": { borderBottom: idx < paginated.length - 1 ? "1px solid #f3f4f6" : "none", py: "12px", px: "14px", verticalAlign: "middle" } }}>
 
@@ -822,7 +835,7 @@ export default function Replacement() {
                       ) : (
                         <Typography sx={{ fontSize: 12, fontWeight: 500, color: "#d1d5db", lineHeight: 1.3 }}>{row.linkedPO}</Typography>
                       )}
-                      {row.linkedGRN ? (
+                      {grnAvailable ? (
                         <Box sx={{ mt: "5px" }}>
                           <Chip label={row.linkedGRN} size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700, bgcolor: "#fdf4ff", color: "#9333ea", border: "1px solid #e9d5ff", borderRadius: "5px", "& .MuiChip-label": { px: "6px" } }} />
                         </Box>
@@ -839,18 +852,35 @@ export default function Replacement() {
                     {/* Col 6: Actions */}
                     <TableCell>
                       <Stack direction="row" spacing={0.5} alignItems="center">
-                        {row.linkedGRN && (
-                          <Tooltip title="View Linked GRN">
-                            <IconButton size="small" onClick={() => handleViewGRN(row)} sx={{ width: 28, height: 28, borderRadius: "6px", border: "1px solid #e5e7eb", bgcolor: "#fff", "&:hover": { bgcolor: "#f0fdf4", borderColor: "#bbf7d0" } }}>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" /></svg>
+                        {/* View Linked GRN — always visible, disabled when no real GRN */}
+                        <Tooltip title={grnAvailable ? "View Linked GRN" : "No linked GRN for this request"}>
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleViewGRN(row)}
+                              disabled={!grnAvailable}
+                              sx={{
+                                width: 28, height: 28, borderRadius: "6px",
+                                border: `1px solid ${grnAvailable ? "#e5e7eb" : "#d1d5db"}`,
+                                bgcolor: "#fff",
+                                "&:hover": {
+                                  bgcolor: grnAvailable ? "#f0fdf4" : "#fff",
+                                  borderColor: grnAvailable ? "#bbf7d0" : "#d1d5db",
+                                },
+                                "&.Mui-disabled": { opacity: 0.5 },
+                              }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={grnAvailable ? "#10b981" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" /></svg>
                             </IconButton>
-                          </Tooltip>
-                        )}
+                          </span>
+                        </Tooltip>
+
                         <Tooltip title="View Details">
                           <IconButton size="small" onClick={() => handleViewDetails(row)} sx={{ width: 28, height: 28, borderRadius: "6px", border: "1px solid #e5e7eb", bgcolor: "#fff", "&:hover": { bgcolor: "#eff6ff", borderColor: "#bfdbfe" } }}>
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                           </IconButton>
                         </Tooltip>
+
                         {row.linkedVR ? (
                           <Tooltip title="View Vendor Return">
                             <IconButton size="small" onClick={() => handleViewVR(row)} sx={{ width: 28, height: 28, borderRadius: "6px", border: "1px solid #e5e7eb", bgcolor: "#fff", "&:hover": { bgcolor: "#fef3c7", borderColor: "#fcd34d" } }}>
@@ -858,15 +888,35 @@ export default function Replacement() {
                             </IconButton>
                           </Tooltip>
                         ) : (
-                          <Tooltip title={!can.replacementItems ? "You don't have permission to generate vendor returns" : "Generate Vendor Return"}>
+                          <Tooltip title={
+                            !grnAvailable
+                              ? "No linked GRN — cannot generate a vendor return"
+                              : !can.replacementItems
+                                ? "You don't have permission to generate vendor returns"
+                                : "Generate Vendor Return"
+                          }>
                             <span>
-                              <IconButton size="small" onClick={() => handleGenerateVendorReturn(row)} disabled={!can.replacementItems}
-                                sx={{ width: 28, height: 28, borderRadius: "6px", border: `1px solid ${can.replacementItems ? "#e5e7eb" : "#d1d5db"}`, bgcolor: "#fff", "&:hover": { bgcolor: can.replacementItems ? "#fef3c7" : "#fff", borderColor: can.replacementItems ? "#fcd34d" : "#d1d5db" }, "&.Mui-disabled": { opacity: 0.5 } }}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={can.replacementItems ? "#f59e0b" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M3 21v-5h5" /></svg>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleGenerateVendorReturn(row)}
+                                disabled={!can.replacementItems || !grnAvailable}
+                                sx={{
+                                  width: 28, height: 28, borderRadius: "6px",
+                                  border: `1px solid ${can.replacementItems && grnAvailable ? "#e5e7eb" : "#d1d5db"}`,
+                                  bgcolor: "#fff",
+                                  "&:hover": {
+                                    bgcolor: can.replacementItems && grnAvailable ? "#fef3c7" : "#fff",
+                                    borderColor: can.replacementItems && grnAvailable ? "#fcd34d" : "#d1d5db",
+                                  },
+                                  "&.Mui-disabled": { opacity: 0.5 },
+                                }}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={can.replacementItems && grnAvailable ? "#f59e0b" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M3 21v-5h5" /></svg>
                               </IconButton>
                             </span>
                           </Tooltip>
                         )}
+
                         <Tooltip title={!can.replacementItems ? "You don't have permission to remove replacement items" : "Remove"}>
                           <span>
                             <IconButton size="small" onClick={() => handleDelete(row.id)} disabled={!can.replacementItems}
